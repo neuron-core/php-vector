@@ -1,6 +1,6 @@
 # PHPVector adapter for Neuron AI framework
 
-This is a PHPVector adapter for the [Neuron AI framework](https://neuron-ai.dev/).
+This is a [PHPVector](https://github.com/ezimuel/PHPVector) adapter for the [Neuron AI framework](https://neuron-ai.dev/).
 
 ## Install
 
@@ -8,7 +8,7 @@ This is a PHPVector adapter for the [Neuron AI framework](https://neuron-ai.dev/
 composer require neuron-core/php-vector
 ```
 
-## Use in RAG or retrieval components
+## Use in RAG
 
 ```php
 use NeuronAI\PHPVector\PHPVector;
@@ -17,10 +17,49 @@ class MyRAG extends RAG
 {
     ...
 
-    protected function vectorStore(): VectorStoreInterface {
+    protected function vectorStore(): VectorStoreInterface
+    {
         return new PHPVector(
             database: new VectorDatabase(path: '/var/data/mydb'),
             topK: 5
+        );
+    }
+}
+```
+
+## Use in Retrieval components
+
+```php
+use NeuronAI\PHPVector\PHPVector;
+
+class MyAgent extends Agent
+{
+    ...
+
+    protected function tools(): array
+    {
+        return [
+            RetrievalTool::make(
+                new SimilarityRetrieval(
+                    $this->vectorStore(),
+                    $this->embeddings()
+                )
+            ),
+        ];
+    }
+
+    protected function vectorStore(): VectorStoreInterface
+    {
+        return new PHPVector(
+            database: new VectorDatabase(path: '/var/data/mydb'),
+            topK: 5
+        );
+    }
+
+    protected function embeddings(): EmbeddingsProviderInterface
+    {
+        return new OllamaEmbeddingsProvider(
+            model: 'OLLAMA_EMBEDDINGS_MODEL'
         );
     }
 }
