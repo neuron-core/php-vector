@@ -1,6 +1,6 @@
 # PHPVector adapter for Neuron AI framework
 
-This is a [PHPVector](https://github.com/ezimuel/PHPVector) adapter for the [Neuron AI framework](https://neuron-ai.dev/).
+This is the [PHPVector](https://github.com/ezimuel/PHPVector) adapter for the [Neuron AI framework](https://neuron-ai.dev/).
 
 ## Install
 
