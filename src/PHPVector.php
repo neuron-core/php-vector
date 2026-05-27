@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace NeuronAI\PHPVector;
 
-use NeuronAI\Exceptions\VectorStoreException;
 use NeuronAI\RAG\Document as NeuronDocument;
 use NeuronAI\RAG\VectorStore\VectorStoreInterface;
 use NeuronAI\StaticConstructor;
@@ -81,21 +80,29 @@ class PHPVector implements VectorStoreInterface
         }
     }
 
-    /**
-     * @throws VectorStoreException
-     */
     public function deleteBy(string $sourceType, ?string $sourceName = null): VectorStoreInterface
     {
-        throw new VectorStoreException('Deletion not supported.');
+        $filters = [MetadataFilter::eq(self::SOURCE_TYPE_KEY, $sourceType)];
+
+        if ($sourceName !== null) {
+            $filters[] = MetadataFilter::eq(self::SOURCE_NAME_KEY, $sourceName);
+        }
+
+        foreach ($this->database->metadataSearch(filters: $filters) as $result) {
+            $this->database->deleteDocument($result->document->id);
+        }
+
+        $this->persist();
+
+        return $this;
     }
 
     /**
-     * @throws VectorStoreException
+     * @deprecated Use deleteBy() instead.
      */
     public function deleteBySource(string $sourceType, string $sourceName): VectorStoreInterface
     {
-        $this->deleteBy($sourceType, $sourceName);
-        return $this;
+        return $this->deleteBy($sourceType, $sourceName);
     }
 
     /**

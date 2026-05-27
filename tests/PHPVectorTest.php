@@ -294,10 +294,96 @@ class PHPVectorTest extends TestCase
         self::assertSame(2, $afterSave->count());
     }
 
+    public function testDeleteByRemovesMatchingSourceType(): void
+    {
+        $database = new VectorDatabase();
+        $adapter = new PHPVector($database);
+
+        $adapter->addDocuments([
+            $this->makeSourcedDocument('a', 'pdf', 'one.pdf'),
+            $this->makeSourcedDocument('b', 'pdf', 'two.pdf'),
+            $this->makeSourcedDocument('c', 'web', 'site'),
+        ]);
+        self::assertSame(3, $database->count());
+
+        $adapter->deleteBy('pdf');
+
+        self::assertSame(1, $database->count());
+    }
+
+    public function testDeleteByRemovesOnlyExactTypeAndName(): void
+    {
+        $database = new VectorDatabase();
+        $adapter = new PHPVector($database);
+
+        $adapter->addDocuments([
+            $this->makeSourcedDocument('a', 'pdf', 'one.pdf'),
+            $this->makeSourcedDocument('b', 'pdf', 'two.pdf'),
+        ]);
+
+        $adapter->deleteBy('pdf', 'one.pdf');
+
+        self::assertSame(1, $database->count());
+    }
+
+    public function testDeleteByWithNoMatchIsNoop(): void
+    {
+        $database = new VectorDatabase();
+        $adapter = new PHPVector($database);
+
+        $adapter->addDocument($this->makeSourcedDocument('a', 'pdf', 'one.pdf'));
+
+        $result = $adapter->deleteBy('missing');
+
+        self::assertSame(1, $database->count());
+        self::assertSame($adapter, $result);
+    }
+
+    public function testDeleteBySourceDelegatesToDeleteBy(): void
+    {
+        $database = new VectorDatabase();
+        $adapter = new PHPVector($database);
+
+        $adapter->addDocuments([
+            $this->makeSourcedDocument('a', 'pdf', 'one.pdf'),
+            $this->makeSourcedDocument('b', 'web', 'site'),
+        ]);
+
+        $adapter->deleteBySource('pdf', 'one.pdf');
+
+        self::assertSame(1, $database->count());
+    }
+
+    public function testDeleteByPersistsWhenAutoSaveEnabled(): void
+    {
+        $database = new VectorDatabase(path: $this->tempDir);
+        $adapter = new PHPVector($database);
+
+        $adapter->addDocuments([
+            $this->makeSourcedDocument('a', 'pdf', 'one.pdf'),
+            $this->makeSourcedDocument('b', 'web', 'site'),
+        ]);
+
+        $adapter->deleteBy('pdf');
+
+        $reopened = VectorDatabase::open($this->tempDir);
+        self::assertSame(1, $reopened->count());
+    }
+
     private function createDocumentWithEmbedding(string $content): NeuronDocument
     {
         $document = new NeuronDocument($content);
         $document->embedding = $this->createTestEmbedding();
+        return $document;
+    }
+
+    private function makeSourcedDocument(string $id, string $sourceType, string $sourceName): NeuronDocument
+    {
+        $document = new NeuronDocument('content ' . $id);
+        $document->id = $id;
+        $document->embedding = $this->createTestEmbedding();
+        $document->sourceType = $sourceType;
+        $document->sourceName = $sourceName;
         return $document;
     }
 }
