@@ -25,12 +25,14 @@ class PHPVector implements VectorStoreInterface
     public function __construct(
         protected VectorDatabase $database,
         protected int $topK = 5,
+        protected bool $autoSave = true,
     ) {
     }
 
     public function addDocument(NeuronDocument $document): VectorStoreInterface
     {
         $this->write($document);
+        $this->persist();
 
         return $this;
     }
@@ -43,6 +45,7 @@ class PHPVector implements VectorStoreInterface
         foreach ($documents as $document) {
             $this->write($document);
         }
+        $this->persist();
 
         return $this;
     }
@@ -69,6 +72,13 @@ class PHPVector implements VectorStoreInterface
                 ],
             )
         );
+    }
+
+    private function persist(): void
+    {
+        if ($this->autoSave && $this->database->isPersistent()) {
+            $this->database->save();
+        }
     }
 
     /**

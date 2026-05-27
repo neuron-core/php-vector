@@ -261,6 +261,39 @@ class PHPVectorTest extends TestCase
         self::assertSame(['author' => 'jane', 'pages' => 12, 'published' => true], $first->metadata);
     }
 
+    public function testMutationsPersistWhenAutoSaveEnabled(): void
+    {
+        $database = new VectorDatabase(path: $this->tempDir);
+        $adapter = new PHPVector($database);
+
+        $adapter->addDocuments([
+            $this->createDocumentWithEmbedding('Auto 1'),
+            $this->createDocumentWithEmbedding('Auto 2'),
+        ]);
+
+        // No explicit save(): auto-save should have persisted the index.
+        $reopened = VectorDatabase::open($this->tempDir);
+        self::assertSame(2, $reopened->count());
+    }
+
+    public function testAutoSaveDisabledDoesNotPersistUntilManualSave(): void
+    {
+        $database = new VectorDatabase(path: $this->tempDir);
+        $adapter = new PHPVector($database, autoSave: false);
+
+        $adapter->addDocuments([
+            $this->createDocumentWithEmbedding('Manual 1'),
+            $this->createDocumentWithEmbedding('Manual 2'),
+        ]);
+
+        // Index not yet persisted: meta.json must not exist on disk.
+        self::assertFileDoesNotExist($this->tempDir . '/meta.json');
+
+        $database->save();
+        $afterSave = VectorDatabase::open($this->tempDir);
+        self::assertSame(2, $afterSave->count());
+    }
+
     private function createDocumentWithEmbedding(string $content): NeuronDocument
     {
         $document = new NeuronDocument($content);
