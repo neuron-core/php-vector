@@ -9,6 +9,19 @@ use NeuronAI\RAG\Document as NeuronDocument;
 use PHPVector\VectorDatabase;
 use PHPUnit\Framework\TestCase;
 
+use function array_diff;
+use function array_fill;
+use function is_array;
+use function is_dir;
+use function iterator_to_array;
+use function mt_getrandmax;
+use function mt_rand;
+use function rmdir;
+use function scandir;
+use function sys_get_temp_dir;
+use function uniqid;
+use function unlink;
+
 class PHPVectorTest extends TestCase
 {
     private string $tempDir;
@@ -85,7 +98,7 @@ class PHPVectorTest extends TestCase
     {
         // Create and persist documents with first instance
         $database = new VectorDatabase(path: $this->tempDir);
-        $adapter = new PHPVector($database);
+        $adapter = new PHPVector($database, autoSave: false);
 
         $documents = [
             $this->createDocumentWithEmbedding('Persisted document 1'),
@@ -139,7 +152,6 @@ class PHPVectorTest extends TestCase
         $results = $adapter->similaritySearch($queryEmbedding);
 
         $this->assertNotEmpty($results);
-        $this->assertIsIterable($results);
 
         $resultsArray = is_array($results) ? $results : iterator_to_array($results);
         $this->assertCount(3, $resultsArray);
