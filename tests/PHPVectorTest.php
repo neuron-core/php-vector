@@ -238,6 +238,29 @@ class PHPVectorTest extends TestCase
         $this->assertSame($adapter, $result);
     }
 
+    public function testSourceTypeAndNameRoundTripWithoutLeakingIntoMetadata(): void
+    {
+        $database = new VectorDatabase();
+        $adapter = new PHPVector($database);
+
+        $document = new NeuronDocument('Round trip content');
+        $document->id = 'rt1';
+        $document->embedding = $this->createTestEmbedding();
+        $document->sourceType = 'pdf';
+        $document->sourceName = 'manual.pdf';
+        $document->metadata = ['author' => 'jane', 'pages' => 12, 'published' => true];
+
+        $adapter->addDocument($document);
+
+        $results = $adapter->similaritySearch($document->embedding);
+        $resultsArray = is_array($results) ? $results : iterator_to_array($results);
+        $first = $resultsArray[0];
+
+        self::assertSame('pdf', $first->sourceType);
+        self::assertSame('manual.pdf', $first->sourceName);
+        self::assertSame(['author' => 'jane', 'pages' => 12, 'published' => true], $first->metadata);
+    }
+
     private function createDocumentWithEmbedding(string $content): NeuronDocument
     {
         $document = new NeuronDocument($content);

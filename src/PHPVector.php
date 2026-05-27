@@ -9,6 +9,7 @@ use NeuronAI\RAG\Document as NeuronDocument;
 use NeuronAI\RAG\VectorStore\VectorStoreInterface;
 use NeuronAI\StaticConstructor;
 use PHPVector\Document;
+use PHPVector\Metadata\MetadataFilter;
 use PHPVector\SearchResult;
 use PHPVector\VectorDatabase;
 
@@ -18,6 +19,9 @@ class PHPVector implements VectorStoreInterface
 {
     use StaticConstructor;
 
+    private const SOURCE_TYPE_KEY = 'sourceType';
+    private const SOURCE_NAME_KEY = 'sourceName';
+
     public function __construct(
         protected VectorDatabase $database,
         protected int $topK = 5,
@@ -26,14 +30,7 @@ class PHPVector implements VectorStoreInterface
 
     public function addDocument(NeuronDocument $document): VectorStoreInterface
     {
-        $this->database->addDocument(
-            new Document(
-                id: $document->id,
-                vector: $document->embedding,
-                text: $document->content,
-                metadata: $document->metadata,
-            )
-        );
+        $this->write($document);
 
         return $this;
     }
@@ -44,10 +41,34 @@ class PHPVector implements VectorStoreInterface
     public function addDocuments(array $documents): VectorStoreInterface
     {
         foreach ($documents as $document) {
-            $this->addDocument($document);
+            $this->write($document);
         }
 
         return $this;
+    }
+
+    /**
+     * Persist a Neuron document into PHPVector.
+     *
+     * Neuron's `sourceType`/`sourceName` are top-level Document properties, but
+     * PHPVector only stores `metadata`. They are folded into metadata under the
+     * reserved keys so `deleteBy()` can filter on them; `similaritySearch()`
+     * restores them and strips the reserved keys back out.
+     */
+    private function write(NeuronDocument $document): void
+    {
+        $this->database->addDocument(
+            new Document(
+                id: $document->id,
+                vector: $document->embedding,
+                text: $document->content,
+                metadata: [
+                    ...$document->metadata,
+                    self::SOURCE_TYPE_KEY => $document->sourceType,
+                    self::SOURCE_NAME_KEY => $document->sourceName,
+                ],
+            )
+        );
     }
 
     /**
@@ -79,11 +100,21 @@ class PHPVector implements VectorStoreInterface
         );
 
         return array_map(function (SearchResult $result): NeuronDocument {
-            $document = new NeuronDocument($result->document->text);
-            $document->id = $result->document->id;
-            $document->embedding = $result->document->vector;
-            $document->metadata = $result->document->metadata;
+            $phpDoc = $result->document;
+
+            $metadata = $phpDoc->metadata;
+            $sourceType = $metadata[self::SOURCE_TYPE_KEY] ?? 'manual';
+            $sourceName = $metadata[self::SOURCE_NAME_KEY] ?? 'manual';
+            unset($metadata[self::SOURCE_TYPE_KEY], $metadata[self::SOURCE_NAME_KEY]);
+
+            $document = new NeuronDocument($phpDoc->text);
+            $document->id = $phpDoc->id;
+            $document->embedding = $phpDoc->vector;
+            $document->sourceType = $sourceType;
+            $document->sourceName = $sourceName;
+            $document->metadata = $metadata;
             $document->score = $result->score;
+
             return $document;
         }, $results);
     }
