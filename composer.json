@@ -11,7 +11,7 @@
     "license": "MIT",
     "require": {
         "php": "^8.1",
-        "ezimuel/phpvector": "dev-feat/is-persistent as 0.3.0",
+        "ezimuel/phpvector": "^0.3.0",
         "neuron-core/neuron-ai": "^3.0"
     },
     "require-dev": {
