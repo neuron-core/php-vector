@@ -9,6 +9,19 @@ use NeuronAI\RAG\Document as NeuronDocument;
 use PHPVector\VectorDatabase;
 use PHPUnit\Framework\TestCase;
 
+use function array_diff;
+use function array_fill;
+use function is_array;
+use function is_dir;
+use function iterator_to_array;
+use function mt_getrandmax;
+use function mt_rand;
+use function rmdir;
+use function scandir;
+use function sys_get_temp_dir;
+use function uniqid;
+use function unlink;
+
 class PHPVectorTest extends TestCase
 {
     private string $tempDir;
@@ -85,7 +98,7 @@ class PHPVectorTest extends TestCase
     {
         // Create and persist documents with first instance
         $database = new VectorDatabase(path: $this->tempDir);
-        $adapter = new PHPVector($database);
+        $adapter = new PHPVector($database, autoSave: false);
 
         $documents = [
             $this->createDocumentWithEmbedding('Persisted document 1'),
@@ -139,7 +152,6 @@ class PHPVectorTest extends TestCase
         $results = $adapter->similaritySearch($queryEmbedding);
 
         $this->assertNotEmpty($results);
-        $this->assertIsIterable($results);
 
         $resultsArray = is_array($results) ? $results : iterator_to_array($results);
         $this->assertCount(3, $resultsArray);
@@ -238,10 +250,152 @@ class PHPVectorTest extends TestCase
         $this->assertSame($adapter, $result);
     }
 
+    public function testSourceTypeAndNameRoundTripWithoutLeakingIntoMetadata(): void
+    {
+        $database = new VectorDatabase();
+        $adapter = new PHPVector($database);
+
+        $document = new NeuronDocument('Round trip content');
+        $document->id = 'rt1';
+        $document->embedding = $this->createTestEmbedding();
+        $document->sourceType = 'pdf';
+        $document->sourceName = 'manual.pdf';
+        $document->metadata = ['author' => 'jane', 'pages' => 12, 'published' => true];
+
+        $adapter->addDocument($document);
+
+        $results = $adapter->similaritySearch($document->embedding);
+        $resultsArray = is_array($results) ? $results : iterator_to_array($results);
+        $first = $resultsArray[0];
+
+        self::assertSame('pdf', $first->sourceType);
+        self::assertSame('manual.pdf', $first->sourceName);
+        self::assertSame(['author' => 'jane', 'pages' => 12, 'published' => true], $first->metadata);
+    }
+
+    public function testMutationsPersistWhenAutoSaveEnabled(): void
+    {
+        $database = new VectorDatabase(path: $this->tempDir);
+        $adapter = new PHPVector($database);
+
+        $adapter->addDocuments([
+            $this->createDocumentWithEmbedding('Auto 1'),
+            $this->createDocumentWithEmbedding('Auto 2'),
+        ]);
+
+        // No explicit save(): auto-save should have persisted the index.
+        $reopened = VectorDatabase::open($this->tempDir);
+        self::assertSame(2, $reopened->count());
+    }
+
+    public function testAutoSaveDisabledDoesNotPersistUntilManualSave(): void
+    {
+        $database = new VectorDatabase(path: $this->tempDir);
+        $adapter = new PHPVector($database, autoSave: false);
+
+        $adapter->addDocuments([
+            $this->createDocumentWithEmbedding('Manual 1'),
+            $this->createDocumentWithEmbedding('Manual 2'),
+        ]);
+
+        // Index not yet persisted: meta.json must not exist on disk.
+        self::assertFileDoesNotExist($this->tempDir . '/meta.json');
+
+        $database->save();
+        $afterSave = VectorDatabase::open($this->tempDir);
+        self::assertSame(2, $afterSave->count());
+    }
+
+    public function testDeleteByRemovesMatchingSourceType(): void
+    {
+        $database = new VectorDatabase();
+        $adapter = new PHPVector($database);
+
+        $adapter->addDocuments([
+            $this->makeSourcedDocument('a', 'pdf', 'one.pdf'),
+            $this->makeSourcedDocument('b', 'pdf', 'two.pdf'),
+            $this->makeSourcedDocument('c', 'web', 'site'),
+        ]);
+        self::assertSame(3, $database->count());
+
+        $adapter->deleteBy('pdf');
+
+        self::assertSame(1, $database->count());
+    }
+
+    public function testDeleteByRemovesOnlyExactTypeAndName(): void
+    {
+        $database = new VectorDatabase();
+        $adapter = new PHPVector($database);
+
+        $adapter->addDocuments([
+            $this->makeSourcedDocument('a', 'pdf', 'one.pdf'),
+            $this->makeSourcedDocument('b', 'pdf', 'two.pdf'),
+        ]);
+
+        $adapter->deleteBy('pdf', 'one.pdf');
+
+        self::assertSame(1, $database->count());
+    }
+
+    public function testDeleteByWithNoMatchIsNoop(): void
+    {
+        $database = new VectorDatabase();
+        $adapter = new PHPVector($database);
+
+        $adapter->addDocument($this->makeSourcedDocument('a', 'pdf', 'one.pdf'));
+
+        $result = $adapter->deleteBy('missing');
+
+        self::assertSame(1, $database->count());
+        self::assertSame($adapter, $result);
+    }
+
+    public function testDeleteBySourceDelegatesToDeleteBy(): void
+    {
+        $database = new VectorDatabase();
+        $adapter = new PHPVector($database);
+
+        $adapter->addDocuments([
+            $this->makeSourcedDocument('a', 'pdf', 'one.pdf'),
+            $this->makeSourcedDocument('b', 'web', 'site'),
+        ]);
+
+        $adapter->deleteBySource('pdf', 'one.pdf');
+
+        self::assertSame(1, $database->count());
+    }
+
+    public function testDeleteByPersistsWhenAutoSaveEnabled(): void
+    {
+        $database = new VectorDatabase(path: $this->tempDir);
+        $adapter = new PHPVector($database);
+
+        $adapter->addDocuments([
+            $this->makeSourcedDocument('a', 'pdf', 'one.pdf'),
+            $this->makeSourcedDocument('b', 'web', 'site'),
+        ]);
+
+        $adapter->deleteBy('pdf');
+
+        $reopened = VectorDatabase::open($this->tempDir);
+        self::assertSame(1, $reopened->count());
+    }
+
     private function createDocumentWithEmbedding(string $content): NeuronDocument
     {
         $document = new NeuronDocument($content);
         $document->embedding = $this->createTestEmbedding();
+        return $document;
+    }
+
+    private function makeSourcedDocument(string $id, string $sourceType, string $sourceName): NeuronDocument
+    {
+        $document = new NeuronDocument('content ' . $id);
+        $document->id = $id;
+        $document->embedding = $this->createTestEmbedding();
+        $document->sourceType = $sourceType;
+        $document->sourceName = $sourceName;
         return $document;
     }
 }
