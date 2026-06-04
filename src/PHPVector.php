@@ -37,6 +37,7 @@ class PHPVector implements VectorStoreInterface
                 $this->database = new VectorDatabase(path: $path);
             }
         } catch (UnexpectedValueException) {
+            mkdir($path, recursive: true);
             $this->database = new VectorDatabase(path: $path);
         }
     }
