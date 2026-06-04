@@ -18,8 +18,8 @@ class PHPVector implements VectorStoreInterface
 {
     use StaticConstructor;
 
-    private const SOURCE_TYPE_KEY = 'sourceType';
-    private const SOURCE_NAME_KEY = 'sourceName';
+    protected const SOURCE_TYPE_KEY = 'sourceType';
+    protected const SOURCE_NAME_KEY = 'sourceName';
 
     public function __construct(
         protected VectorDatabase $database,
@@ -57,7 +57,7 @@ class PHPVector implements VectorStoreInterface
      * reserved keys so `deleteBy()` can filter on them; `similaritySearch()`
      * restores them and strips the reserved keys back out.
      */
-    private function write(NeuronDocument $document): void
+    protected function write(NeuronDocument $document): void
     {
         $this->database->addDocument(
             new Document(
@@ -73,7 +73,7 @@ class PHPVector implements VectorStoreInterface
         );
     }
 
-    private function persist(): void
+    protected function persist(): void
     {
         if ($this->autoSave && $this->database->isPersistent()) {
             $this->database->save();
