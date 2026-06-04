@@ -8,6 +8,7 @@ use NeuronAI\PHPVector\PHPVector;
 use NeuronAI\RAG\Document as NeuronDocument;
 use PHPVector\VectorDatabase;
 use PHPUnit\Framework\TestCase;
+use ReflectionProperty;
 
 use function array_diff;
 use function array_fill;
@@ -52,6 +53,19 @@ class PHPVectorTest extends TestCase
         rmdir($dir);
     }
 
+    /**
+     * Extract the internal VectorDatabase from a PHPVector instance.
+     *
+     * The new PHPVector constructor accepts a directory path and manages its own
+     * VectorDatabase internally (protected property). Tests that need to assert
+     * document counts or call save() use this helper to reach the inner instance.
+     */
+    private function getDatabase(PHPVector $store): VectorDatabase
+    {
+        $ref = new ReflectionProperty(PHPVector::class, 'database');
+        return $ref->getValue($store);
+    }
+
     private function createTestEmbedding(int $dimensions = 128): array
     {
         $embedding = [];
@@ -63,23 +77,19 @@ class PHPVectorTest extends TestCase
 
     public function testAddDocumentIncreasesCount(): void
     {
-        $database = new VectorDatabase();
-        $adapter = new PHPVector($database);
+        $store = new PHPVector($this->tempDir);
 
         $document = new NeuronDocument('Test content');
         $document->embedding = $this->createTestEmbedding();
 
-        $this->assertEquals(0, $database->count());
+        $store->addDocument($document);
 
-        $adapter->addDocument($document);
-
-        $this->assertEquals(1, $database->count());
+        $this->assertEquals(1, $this->getDatabase($store)->count());
     }
 
     public function testAddDocumentsAddsMultipleDocuments(): void
     {
-        $database = new VectorDatabase();
-        $adapter = new PHPVector($database);
+        $store = new PHPVector($this->tempDir);
 
         $documents = [
             $this->createDocumentWithEmbedding('Document 1'),
@@ -87,38 +97,33 @@ class PHPVectorTest extends TestCase
             $this->createDocumentWithEmbedding('Document 3'),
         ];
 
-        $this->assertEquals(0, $database->count());
+        $store->addDocuments($documents);
 
-        $adapter->addDocuments($documents);
-
-        $this->assertEquals(3, $database->count());
+        $this->assertEquals(3, $this->getDatabase($store)->count());
     }
 
     public function testPersistDocumentsAcrossInstances(): void
     {
-        // Create and persist documents with first instance
-        $database = new VectorDatabase(path: $this->tempDir);
-        $adapter = new PHPVector($database, autoSave: false);
+        // Create and persist documents with first instance.
+        $store = new PHPVector($this->tempDir);
 
         $documents = [
             $this->createDocumentWithEmbedding('Persisted document 1'),
             $this->createDocumentWithEmbedding('Persisted document 2'),
         ];
 
-        $adapter->addDocuments($documents);
-        $database->save();
+        $store->addDocuments($documents);
 
-        $this->assertEquals(2, $database->count());
+        $this->assertEquals(2, $this->getDatabase($store)->count());
 
-        // Load a new instance and verify documents persist
-        $newDatabase = VectorDatabase::open($this->tempDir);
-        $this->assertEquals(2, $newDatabase->count());
+        // Open a fresh VectorDatabase from the same path and verify documents persist.
+        $reopened = VectorDatabase::open($this->tempDir);
+        $this->assertEquals(2, $reopened->count());
     }
 
     public function testSimilaritySearchReturnsResults(): void
     {
-        $database = new VectorDatabase();
-        $adapter = new PHPVector($database);
+        $store = new PHPVector($this->tempDir);
 
         // Create documents with known embeddings for predictable search
         $embedding1 = array_fill(0, 128, 0.0);
@@ -143,13 +148,13 @@ class PHPVectorTest extends TestCase
         $doc3->id = 'doc3';
         $doc3->embedding = $embedding3;
 
-        $adapter->addDocuments([$doc1, $doc2, $doc3]);
+        $store->addDocuments([$doc1, $doc2, $doc3]);
 
         // Search with a vector similar to doc1
         $queryEmbedding = array_fill(0, 128, 0.0);
         $queryEmbedding[0] = 1.0;
 
-        $results = $adapter->similaritySearch($queryEmbedding);
+        $results = $store->similaritySearch($queryEmbedding);
 
         $this->assertNotEmpty($results);
 
@@ -165,8 +170,7 @@ class PHPVectorTest extends TestCase
 
     public function testSimilaritySearchRespectsTopK(): void
     {
-        $database = new VectorDatabase();
-        $adapter = new PHPVector($database, topK: 2);
+        $store = new PHPVector($this->tempDir, topK: 2);
 
         $documents = [
             $this->createDocumentWithEmbedding('Document 1'),
@@ -175,10 +179,10 @@ class PHPVectorTest extends TestCase
             $this->createDocumentWithEmbedding('Document 4'),
         ];
 
-        $adapter->addDocuments($documents);
+        $store->addDocuments($documents);
 
         $queryEmbedding = $this->createTestEmbedding();
-        $results = $adapter->similaritySearch($queryEmbedding);
+        $results = $store->similaritySearch($queryEmbedding);
 
         $resultsArray = is_array($results) ? $results : iterator_to_array($results);
         $this->assertCount(2, $resultsArray);
@@ -186,17 +190,16 @@ class PHPVectorTest extends TestCase
 
     public function testDocumentMetadataIsPreserved(): void
     {
-        $database = new VectorDatabase();
-        $adapter = new PHPVector($database);
+        $store = new PHPVector($this->tempDir);
 
         $document = new NeuronDocument('Test content');
         $document->embedding = $this->createTestEmbedding();
         $document->metadata = ['key' => 'value', 'number' => 42];
 
-        $adapter->addDocument($document);
+        $store->addDocument($document);
 
         $queryEmbedding = $document->embedding;
-        $results = $adapter->similaritySearch($queryEmbedding);
+        $results = $store->similaritySearch($queryEmbedding);
 
         $resultsArray = is_array($results) ? $results : iterator_to_array($results);
         $firstResult = $resultsArray[0];
@@ -206,17 +209,16 @@ class PHPVectorTest extends TestCase
 
     public function testDocumentContentIsPreserved(): void
     {
-        $database = new VectorDatabase();
-        $adapter = new PHPVector($database);
+        $store = new PHPVector($this->tempDir);
 
         $expectedContent = 'This is the document content to preserve';
 
         $document = new NeuronDocument($expectedContent);
         $document->embedding = $this->createTestEmbedding();
 
-        $adapter->addDocument($document);
+        $store->addDocument($document);
 
-        $results = $adapter->similaritySearch($document->embedding);
+        $results = $store->similaritySearch($document->embedding);
         $resultsArray = is_array($results) ? $results : iterator_to_array($results);
 
         $this->assertEquals($expectedContent, $resultsArray[0]->content);
@@ -224,36 +226,33 @@ class PHPVectorTest extends TestCase
 
     public function testAddDocumentReturnsAdapterInstance(): void
     {
-        $database = new VectorDatabase();
-        $adapter = new PHPVector($database);
+        $store = new PHPVector($this->tempDir);
 
         $document = new NeuronDocument('Test');
         $document->embedding = $this->createTestEmbedding();
 
-        $result = $adapter->addDocument($document);
+        $result = $store->addDocument($document);
 
-        $this->assertSame($adapter, $result);
+        $this->assertSame($store, $result);
     }
 
     public function testAddDocumentsReturnsAdapterInstance(): void
     {
-        $database = new VectorDatabase();
-        $adapter = new PHPVector($database);
+        $store = new PHPVector($this->tempDir);
 
         $documents = [
             $this->createDocumentWithEmbedding('Doc 1'),
             $this->createDocumentWithEmbedding('Doc 2'),
         ];
 
-        $result = $adapter->addDocuments($documents);
+        $result = $store->addDocuments($documents);
 
-        $this->assertSame($adapter, $result);
+        $this->assertSame($store, $result);
     }
 
     public function testSourceTypeAndNameRoundTripWithoutLeakingIntoMetadata(): void
     {
-        $database = new VectorDatabase();
-        $adapter = new PHPVector($database);
+        $store = new PHPVector($this->tempDir);
 
         $document = new NeuronDocument('Round trip content');
         $document->id = 'rt1';
@@ -262,9 +261,9 @@ class PHPVectorTest extends TestCase
         $document->sourceName = 'manual.pdf';
         $document->metadata = ['author' => 'jane', 'pages' => 12, 'published' => true];
 
-        $adapter->addDocument($document);
+        $store->addDocument($document);
 
-        $results = $adapter->similaritySearch($document->embedding);
+        $results = $store->similaritySearch($document->embedding);
         $resultsArray = is_array($results) ? $results : iterator_to_array($results);
         $first = $resultsArray[0];
 
@@ -275,10 +274,9 @@ class PHPVectorTest extends TestCase
 
     public function testMutationsPersistWhenAutoSaveEnabled(): void
     {
-        $database = new VectorDatabase(path: $this->tempDir);
-        $adapter = new PHPVector($database);
+        $store = new PHPVector($this->tempDir);
 
-        $adapter->addDocuments([
+        $store->addDocuments([
             $this->createDocumentWithEmbedding('Auto 1'),
             $this->createDocumentWithEmbedding('Auto 2'),
         ]);
@@ -290,10 +288,9 @@ class PHPVectorTest extends TestCase
 
     public function testAutoSaveDisabledDoesNotPersistUntilManualSave(): void
     {
-        $database = new VectorDatabase(path: $this->tempDir);
-        $adapter = new PHPVector($database, autoSave: false);
+        $store = new PHPVector($this->tempDir, autoSave: false);
 
-        $adapter->addDocuments([
+        $store->addDocuments([
             $this->createDocumentWithEmbedding('Manual 1'),
             $this->createDocumentWithEmbedding('Manual 2'),
         ]);
@@ -301,82 +298,77 @@ class PHPVectorTest extends TestCase
         // Index not yet persisted: meta.json must not exist on disk.
         self::assertFileDoesNotExist($this->tempDir . '/meta.json');
 
-        $database->save();
+        $this->getDatabase($store)->save();
         $afterSave = VectorDatabase::open($this->tempDir);
         self::assertSame(2, $afterSave->count());
     }
 
     public function testDeleteByRemovesMatchingSourceType(): void
     {
-        $database = new VectorDatabase();
-        $adapter = new PHPVector($database);
+        $store = new PHPVector($this->tempDir);
 
-        $adapter->addDocuments([
+        $store->addDocuments([
             $this->makeSourcedDocument('a', 'pdf', 'one.pdf'),
             $this->makeSourcedDocument('b', 'pdf', 'two.pdf'),
             $this->makeSourcedDocument('c', 'web', 'site'),
         ]);
-        self::assertSame(3, $database->count());
+        self::assertSame(3, $this->getDatabase($store)->count());
 
-        $adapter->deleteBy('pdf');
+        $store->deleteBy('pdf');
 
-        self::assertSame(1, $database->count());
+        self::assertSame(1, $this->getDatabase($store)->count());
     }
 
     public function testDeleteByRemovesOnlyExactTypeAndName(): void
     {
-        $database = new VectorDatabase();
-        $adapter = new PHPVector($database);
+        $store = new PHPVector($this->tempDir);
 
-        $adapter->addDocuments([
+        $store->addDocuments([
             $this->makeSourcedDocument('a', 'pdf', 'one.pdf'),
             $this->makeSourcedDocument('b', 'pdf', 'two.pdf'),
         ]);
 
-        $adapter->deleteBy('pdf', 'one.pdf');
+        $store->deleteBy('pdf', 'one.pdf');
 
-        self::assertSame(1, $database->count());
+        self::assertSame(1, $this->getDatabase($store)->count());
     }
 
     public function testDeleteByWithNoMatchIsNoop(): void
     {
-        $database = new VectorDatabase();
-        $adapter = new PHPVector($database);
+        $store = new PHPVector($this->tempDir);
 
-        $adapter->addDocument($this->makeSourcedDocument('a', 'pdf', 'one.pdf'));
+        $store->addDocument($this->makeSourcedDocument('a', 'pdf', 'one.pdf'));
 
-        $result = $adapter->deleteBy('missing');
+        $result = $store->deleteBy('missing');
 
-        self::assertSame(1, $database->count());
-        self::assertSame($adapter, $result);
+        self::assertSame(1, $this->getDatabase($store)->count());
+        self::assertSame($store, $result);
     }
 
     public function testDeleteBySourceDelegatesToDeleteBy(): void
     {
-        $database = new VectorDatabase();
-        $adapter = new PHPVector($database);
+        $store = new PHPVector($this->tempDir);
 
-        $adapter->addDocuments([
+        $store->addDocuments([
             $this->makeSourcedDocument('a', 'pdf', 'one.pdf'),
             $this->makeSourcedDocument('b', 'web', 'site'),
         ]);
 
-        $adapter->deleteBySource('pdf', 'one.pdf');
+        $store->deleteBySource('pdf', 'one.pdf');
 
-        self::assertSame(1, $database->count());
+        self::assertSame(1, $this->getDatabase($store)->count());
     }
 
     public function testDeleteByPersistsWhenAutoSaveEnabled(): void
     {
-        $database = new VectorDatabase(path: $this->tempDir);
-        $adapter = new PHPVector($database);
+        $store = new PHPVector($this->tempDir);
 
-        $adapter->addDocuments([
+        $store->addDocuments([
             $this->makeSourcedDocument('a', 'pdf', 'one.pdf'),
             $this->makeSourcedDocument('b', 'web', 'site'),
         ]);
 
-        $adapter->deleteBy('pdf');
+        $store->deleteBy('pdf');
 
         $reopened = VectorDatabase::open($this->tempDir);
         self::assertSame(1, $reopened->count());

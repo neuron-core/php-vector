@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace NeuronAI\PHPVector;
 
+use DirectoryIterator;
 use NeuronAI\RAG\Document as NeuronDocument;
 use NeuronAI\RAG\VectorStore\VectorStoreInterface;
 use NeuronAI\StaticConstructor;
@@ -11,6 +12,7 @@ use PHPVector\Document;
 use PHPVector\Metadata\MetadataFilter;
 use PHPVector\SearchResult;
 use PHPVector\VectorDatabase;
+use UnexpectedValueException;
 
 use function array_map;
 
@@ -18,14 +20,25 @@ class PHPVector implements VectorStoreInterface
 {
     use StaticConstructor;
 
+    protected VectorDatabase $database;
+
     protected const SOURCE_TYPE_KEY = 'sourceType';
     protected const SOURCE_NAME_KEY = 'sourceName';
 
     public function __construct(
-        protected VectorDatabase $database,
+        protected string $path,
         protected int $topK = 5,
         protected bool $autoSave = true,
     ) {
+        try {
+            if ((new DirectoryIterator($path))->valid()) {
+                $this->database = VectorDatabase::open($path);
+            } else {
+                $this->database = new VectorDatabase(path: $path);
+            }
+        } catch (UnexpectedValueException) {
+            $this->database = new VectorDatabase(path: $path);
+        }
     }
 
     public function addDocument(NeuronDocument $document): VectorStoreInterface

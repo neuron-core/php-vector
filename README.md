@@ -20,12 +20,17 @@ composer require neuron-core/php-vector
 Inside a Neuron RAG class:
 
 ```php
-protected function vectorStore(): VectorStoreInterface
+class MyRAG extends RAG
 {
-    return new PHPVector(
-        database: new VectorDatabase(path: '/var/data/mydb'),
-        topK: 5,
-    );
+    ...
+
+    protected function vectorStore(): VectorStoreInterface
+    {
+        return new PHPVector(
+            path: '/var/data/mydb',
+            topK: 5,
+        );
+    }
 }
 ```
 
@@ -37,18 +42,12 @@ use PHPVector\VectorDatabase;
 
 // Persistent database: pass a path to enable on-disk storage.
 $store = new PHPVector(
-    database: new VectorDatabase(path: '/var/data/mydb'),
+    path: '/var/data/mydb',
     topK: 5,
 );
 ```
 
 ## Persistence
-
-PHPVector separates document storage from index storage:
-
-- `new VectorDatabase(path: '...')` creates (or targets) a database directory.
-- `VectorDatabase::open('...')` loads an existing database from disk.
-- `addDocuments()` add documents to the database.
 
 By default, this adapter auto-saves after every mutation (`addDocument`, `addDocuments`,
 `deleteBy`), batched to a single `save()` per call, so persistence "just works".
