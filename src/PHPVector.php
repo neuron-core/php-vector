@@ -4,11 +4,11 @@ declare(strict_types=1);
 
 namespace NeuronAI\PHPVector;
 
+use NeuronAI\Exceptions\VectorStoreException;
 use NeuronAI\RAG\Document as NeuronDocument;
 use NeuronAI\RAG\VectorStore\VectorStoreInterface;
 use NeuronAI\StaticConstructor;
 use PHPVector\Document;
-use PHPVector\Metadata\MetadataFilter;
 use PHPVector\SearchResult;
 use PHPVector\VectorDatabase;
 
@@ -26,7 +26,16 @@ class PHPVector implements VectorStoreInterface
 
     public function addDocument(NeuronDocument $document): VectorStoreInterface
     {
-        return $this->addDocuments([$document]);
+        $this->database->addDocument(
+            new Document(
+                id: $document->id,
+                vector: $document->embedding,
+                text: $document->content,
+                metadata: $document->metadata,
+            )
+        );
+
+        return $this;
     }
 
     /**
@@ -35,46 +44,27 @@ class PHPVector implements VectorStoreInterface
     public function addDocuments(array $documents): VectorStoreInterface
     {
         foreach ($documents as $document) {
-            $this->database->addDocument(
-                new Document(
-                    id: $document->id,
-                    vector: $document->embedding,
-                    text: $document->content,
-                    metadata: array_merge($document->metadata, [
-                        'source_type' => $document->sourceType,
-                        'source_name' => $document->sourceName,
-                    ]),
-                )
-            );
+            $this->addDocument($document);
         }
-
-        $this->database->save();
 
         return $this;
     }
 
+    /**
+     * @throws VectorStoreException
+     */
     public function deleteBy(string $sourceType, ?string $sourceName = null): VectorStoreInterface
     {
-        $filters = [
-            MetadataFilter::eq('sourceType', $sourceType)
-        ];
-
-        if ($sourceName !== null) {
-            $filters[] = MetadataFilter::eq('sourceName', $sourceName);
-        }
-
-        $results = $this->database->metadataSearch(filters: $filters);
-
-        foreach ($results as $result) {
-            $this->database->deleteDocument($result->document->id);
-        }
-
-        return $this;
+        throw new VectorStoreException('Deletion not supported.');
     }
 
+    /**
+     * @throws VectorStoreException
+     */
     public function deleteBySource(string $sourceType, string $sourceName): VectorStoreInterface
     {
-        return $this->deleteBy($sourceType, $sourceName);
+        $this->deleteBy($sourceType, $sourceName);
+        return $this;
     }
 
     /**
