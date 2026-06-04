@@ -15,6 +15,7 @@ use PHPVector\VectorDatabase;
 use UnexpectedValueException;
 
 use function array_map;
+use function mkdir;
 
 class PHPVector implements VectorStoreInterface
 {
