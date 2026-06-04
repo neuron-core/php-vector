@@ -1,6 +1,6 @@
 {
     "name": "neuron-core/php-vector",
-    "description": "Conversational Data Collection.",
+    "description": "PHPVector adapter for the Neuron AI framework.",
     "minimum-stability": "stable",
     "authors": [
         {
